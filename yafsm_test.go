@@ -189,6 +189,10 @@ func emitNormal(t *testing.T, fsm *FSM) error {
 	return nil
 }
 
+func emitAbnormal(t *testing.T, fsm *FSM) error {
+	return nil
+}
+
 func TestFSM(t *testing.T) {
 	fsm, err := initFSM()
 	if err != nil {
