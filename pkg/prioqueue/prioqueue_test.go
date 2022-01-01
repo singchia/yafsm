@@ -24,7 +24,7 @@ func TestPrioQueue(t *testing.T) {
 
 func TestPrioQueuePopSync(t *testing.T) {
 	// random
-	pq, err := NewPrioQueue(OptionQueueLen(0))
+	pq, err := NewPrioQueue(OptionQueueLen(10))
 	if err != nil {
 		t.Error(err)
 		return
