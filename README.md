@@ -1,3 +1,3 @@
 # Yafsm
-![CI](https://github.com/singchia/yafsm/workflows/CI/badge.svg?branch=master)
+[![Go](https://github.com/singchia/yafsm/actions/workflows/go.yml/badge.svg)](https://github.com/singchia/yafsm/actions/workflows/go.yml)
 Yet another finite state machine.
