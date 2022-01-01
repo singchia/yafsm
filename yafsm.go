@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/singchia/ysfsm/pkg/prioqueue"
+	"github.com/singchia/yafsm/pkg/prioqueue"
 )
 
 type StateHandler func(st *State)

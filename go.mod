@@ -1,4 +1,4 @@
-module github.com/singchia/ysfsm
+module github.com/singchia/yafsm
 
 go 1.15
 

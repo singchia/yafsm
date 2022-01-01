@@ -1,6 +1,10 @@
 package yafsm
 
-import "testing"
+import (
+	"errors"
+	"math/rand"
+	"testing"
+)
 
 /*
                               +---------+ ---------\      active OPEN
@@ -150,7 +154,9 @@ func initFSM() (*FSM, error) {
 }
 
 func emitNormal(t *testing.T, fsm *FSM) error {
-	// CLOSED -> SYN_SENT -> ESTAB -> FIN_WAIT1 -> TIME_WAIT -> CLOSED
+	// active close 1
+	// CLOSED -> SYN_SENT -> ESTAB -> FIN_WAIT1 -> FIN_WAIT2 -> TIME_WAIT -> CLOSED
+	t.Log(fsm.State())
 	err := fsm.EmitEvent(ET_SENDSYN)
 	if err != nil {
 		return err
@@ -186,10 +192,130 @@ func emitNormal(t *testing.T, fsm *FSM) error {
 		return err
 	}
 	t.Log(fsm.State())
+
+	// active close 2
+	// CLOSED -> SYN_SENT -> ESTAB -> FIN_WAIT1 -> CLOSING -> TIME_WAIT -> CLOSED
+	t.Log(fsm.State())
+	err = fsm.EmitEvent(ET_SENDSYN)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_RECVSYNACK)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_CLOSE)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_RECVFIN2)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_RECVFINACK2)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_TIMEWAITOUT)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	// passive close
+	// CLOSED -> SYN_SENT -> ESTAB -> CLOSE_WAIT -> LAST_ACK -> CLOSED
+	t.Log(fsm.State())
+	err = fsm.EmitEvent(ET_SENDSYN)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_RECVSYNACK)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_RECVFIN3)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_SENDFIN3)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_RECVFINACK3)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
 	return nil
 }
 
 func emitAbnormal(t *testing.T, fsm *FSM) error {
+	// active close 1
+	// CLOSED -> SYN_SENT -> ESTAB -> FIN_WAIT1 -> FIN_WAIT2 -> TIME_WAIT -> CLOSED
+	t.Log(fsm.State())
+	err := fsm.EmitEvent(ET_SENDSYN)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	abnormalEvents := []string{ET_SENDFIN3, ET_RECVFIN1, ET_RECVFIN2, ET_RECVFINACK1, ET_RECVFINACK2, ET_RECVFINACK3, ET_TIMEWAITOUT}
+	err = fsm.EmitEvent(abnormalEvents[rand.Intn(len(abnormalEvents))])
+	if err == nil {
+		return errors.New("illegal emit")
+	} else {
+		t.Logf("wrong emit: %v", err)
+	}
+
+	err = fsm.EmitEvent(ET_RECVSYNACK)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_CLOSE)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_RECVFINACK1)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_RECVFIN1)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_TIMEWAITOUT)
+	if err != nil {
+		return err
+	}
+	t.Log(fsm.State())
+
 	return nil
 }
 
@@ -200,6 +326,11 @@ func TestFSM(t *testing.T) {
 		return
 	}
 	err = emitNormal(t, fsm)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = emitAbnormal(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
