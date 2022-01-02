@@ -3,7 +3,9 @@ package yafsm
 import (
 	"errors"
 	"math/rand"
+	"sync"
 	"testing"
+	"time"
 )
 
 /*
@@ -292,11 +294,27 @@ func emitAbnormal(t *testing.T, fsm *FSM) error {
 	}
 	t.Log(fsm.State())
 
+	abnormalEvents = []string{ET_RECVSYNACK, ET_RECVFIN1, ET_RECVFIN2, ET_RECVFINACK1, ET_RECVFINACK2, ET_TIMEWAITOUT}
+	err = fsm.EmitEvent(abnormalEvents[rand.Intn(len(abnormalEvents))])
+	if err == nil {
+		return errors.New("illegal emit")
+	} else {
+		t.Logf("wrong emit: %v", err)
+	}
+
 	err = fsm.EmitEvent(ET_CLOSE)
 	if err != nil {
 		return err
 	}
 	t.Log(fsm.State())
+
+	abnormalEvents = []string{ET_RECVSYNACK, ET_RECVFIN1, ET_RECVFINACK2, ET_TIMEWAITOUT, ET_CLOSE, ET_SENDSYN, ET_RECVSYNACK, ET_SYNTIMEOUT, ET_CLOSE}
+	err = fsm.EmitEvent(abnormalEvents[rand.Intn(len(abnormalEvents))])
+	if err == nil {
+		return errors.New("illegal emit")
+	} else {
+		t.Logf("wrong emit: %v", err)
+	}
 
 	err = fsm.EmitEvent(ET_RECVFINACK1)
 	if err != nil {
@@ -304,19 +322,81 @@ func emitAbnormal(t *testing.T, fsm *FSM) error {
 	}
 	t.Log(fsm.State())
 
+	abnormalEvents = []string{ET_RECVSYNACK, ET_RECVFINACK2, ET_TIMEWAITOUT, ET_CLOSE, ET_SENDSYN, ET_RECVSYNACK, ET_SYNTIMEOUT, ET_CLOSE, ET_SENDFIN3}
+	err = fsm.EmitEvent(abnormalEvents[rand.Intn(len(abnormalEvents))])
+	if err == nil {
+		return errors.New("illegal emit")
+	} else {
+		t.Logf("wrong emit: %v", err)
+	}
+
 	err = fsm.EmitEvent(ET_RECVFIN1)
 	if err != nil {
 		return err
 	}
 	t.Log(fsm.State())
 
+	abnormalEvents = []string{ET_RECVSYNACK, ET_RECVFINACK2, ET_CLOSE, ET_SENDSYN, ET_RECVSYNACK, ET_SYNTIMEOUT, ET_CLOSE, ET_SENDFIN3}
+	err = fsm.EmitEvent(abnormalEvents[rand.Intn(len(abnormalEvents))])
+	if err == nil {
+		return errors.New("illegal emit")
+	} else {
+		t.Logf("wrong emit: %v", err)
+	}
+
 	err = fsm.EmitEvent(ET_TIMEWAITOUT)
 	if err != nil {
 		return err
 	}
 	t.Log(fsm.State())
-
 	return nil
+}
+
+func emitPrio(t *testing.T, fsm *FSM) error {
+	err := error(nil)
+	ets := fsm.GetEvents(ET_SENDSYN)
+	if ets == nil || len(ets) != 1 {
+		err = errors.New("events don't match")
+		t.Error(err)
+		return err
+	}
+	ets[0].AddHandler(hangingthere)
+
+	err = fsm.EmitEvent(ET_SENDSYN)
+	if err != nil {
+		return err
+	}
+
+	t.Log(fsm.State())
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		err := fsm.EmitEvent(ET_RECVSYNACK)
+		if err == nil {
+			t.Error("illegal emit")
+		} else {
+			t.Logf("wrong emit: %v", err)
+		}
+		t.Log(fsm.State())
+	}()
+
+	go func() {
+		defer wg.Done()
+		err = fsm.EmitPrioEvent(2, ET_CLOSE)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		t.Log(fsm.State())
+	}()
+	wg.Wait()
+	return nil
+}
+
+func hangingthere(et *Event) {
+	time.Sleep(time.Second)
 }
 
 func TestFSM(t *testing.T) {
@@ -331,6 +411,11 @@ func TestFSM(t *testing.T) {
 		return
 	}
 	err = emitAbnormal(t, fsm)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = emitPrio(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
