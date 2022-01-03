@@ -363,10 +363,7 @@ func emitPrio(t *testing.T, fsm *FSM) error {
 	}
 	ets[0].AddHandler(hangingthere)
 
-	err = fsm.EmitEvent(ET_SENDSYN)
-	if err != nil {
-		return err
-	}
+	fsm.EmitEventAsync(ET_SENDSYN)
 
 	t.Log(fsm.State())
 	wg := sync.WaitGroup{}
@@ -377,6 +374,7 @@ func emitPrio(t *testing.T, fsm *FSM) error {
 		err := fsm.EmitEvent(ET_RECVSYNACK)
 		if err == nil {
 			t.Error("illegal emit")
+			return
 		}
 		t.Logf("wrong emit: %v", err)
 		t.Log(fsm.State())
@@ -400,6 +398,7 @@ func hangingthere(et *Event) {
 }
 
 func emitAsync(t *testing.T, fsm *FSM) error {
+	t.Log(fsm.State())
 	err := error(nil)
 	ets := fsm.GetEvents(ET_SENDSYN)
 	if ets == nil || len(ets) != 1 {
@@ -408,10 +407,7 @@ func emitAsync(t *testing.T, fsm *FSM) error {
 	}
 	ets[0].AddHandler(hangingthere)
 
-	err = fsm.EmitEvent(ET_SENDSYN)
-	if err != nil {
-		return err
-	}
+	fsm.EmitEventAsync(ET_SENDSYN)
 
 	t.Log(fsm.State())
 	wg := sync.WaitGroup{}
@@ -529,36 +525,44 @@ func TestFSM(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	t.Log("================")
 	err = emitNormal(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	t.Log("================")
 	err = emitAbnormal(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	t.Log("================")
 	err = emitPrio(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	t.Log("================")
 	err = emitAsync(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	fsm.SetState(CLOSED)
+	t.Log("================")
 	err = emitWithStateHandlers(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	t.Log("================")
 	err = emitAbsentEvent(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	t.Log("================")
 	err = emitAbsentState(t, fsm)
 	if err != nil {
 		t.Error(err)

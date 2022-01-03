@@ -135,7 +135,9 @@ func (fsm *FSM) emit(ctx context.Context) {
 				for _, enter := range et.To.enters {
 					enter(et.To)
 				}
+				fsm.mutex.Lock()
 				fsm.state = et.To.State
+				fsm.mutex.Unlock()
 				ec.ch <- nil
 				close(ec.ch)
 			}
@@ -143,7 +145,20 @@ func (fsm *FSM) emit(ctx context.Context) {
 	}
 }
 
+func (fsm *FSM) SetState(state string) bool {
+	fsm.mutex.Lock()
+	defer fsm.mutex.Unlock()
+	_, ok := fsm.states[state]
+	if !ok {
+		return false
+	}
+	fsm.state = state
+	return true
+}
+
 func (fsm *FSM) State() string {
+	fsm.mutex.RLock()
+	defer fsm.mutex.RUnlock()
 	return fsm.state
 }
 
