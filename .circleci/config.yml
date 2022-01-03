@@ -43,9 +43,9 @@ jobs:
       - store_artifacts:
           path: /tmp/artifacts
       - run:
-        command: go test -race -coverprofile=coverage.out -covermode=atomic
+          command: go test -race -coverprofile=coverage.out -covermode=atomic
       - run:
-        command: bash <(curl -s https://codecov.io/bash)
+          command: bash <(curl -s https://codecov.io/bash)
 
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
