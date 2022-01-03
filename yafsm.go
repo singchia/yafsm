@@ -11,13 +11,13 @@ import (
 type StateHandler func(st *State)
 
 type State struct {
-	state  string
+	State  string
 	enters []StateHandler
 	lefts  []StateHandler
 }
 
 func NewState(state string) *State {
-	return &State{state: state}
+	return &State{State: state}
 }
 
 func (st *State) AddEnter(handler StateHandler) {
@@ -47,9 +47,9 @@ const (
 )
 
 func (et *Event) duplicate(event, from, to string) dup {
-	if event == et.Event && from == et.From.state && to == et.To.state {
+	if event == et.Event && from == et.From.State && to == et.To.State {
 		return dupEventFromTo
-	} else if event == et.Event && from == et.From.state {
+	} else if event == et.Event && from == et.From.State {
 		return dupEventFrom
 	} else if event == et.Event {
 		return dupEvent
@@ -115,7 +115,7 @@ func (fsm *FSM) emit(ctx context.Context) {
 				}
 				for elem := etList.Front(); elem != nil; elem = elem.Next() {
 					tmp := elem.Value.(*Event)
-					if tmp.From.state == fsm.state {
+					if tmp.From.State == fsm.state {
 						et = tmp
 					}
 				}
@@ -135,7 +135,7 @@ func (fsm *FSM) emit(ctx context.Context) {
 				for _, enter := range et.To.enters {
 					enter(et.To)
 				}
-				fsm.state = et.To.state
+				fsm.state = et.To.State
 				ec.ch <- nil
 				close(ec.ch)
 			}
@@ -153,7 +153,7 @@ func (fsm *FSM) AddState(state string) *State {
 
 	st, ok := fsm.states[state]
 	if !ok {
-		st = &State{state: state}
+		st = &State{State: state}
 		fsm.states[state] = st
 	}
 	return st
@@ -184,8 +184,8 @@ func (fsm *FSM) DelState(state string) bool {
 	for event, etList := range fsm.events {
 		for elem := etList.Front(); elem != nil; elem = elem.Next() {
 			et = elem.Value.(*Event)
-			if et.From.state == state ||
-				et.To.state == state {
+			if et.From.State == state ||
+				et.To.State == state {
 				etList.Remove(elem)
 			}
 		}
@@ -207,7 +207,7 @@ func (fsm *FSM) AddEvent(event string, from, to *State,
 	fsm.mutex.Lock()
 	defer fsm.mutex.Unlock()
 
-	if !fsm.stateExists(from.state) || !fsm.stateExists(to.state) {
+	if !fsm.stateExists(from.State) || !fsm.stateExists(to.State) {
 		return nil, ErrStateNotExist
 	}
 	et := (*Event)(nil)
@@ -215,7 +215,7 @@ func (fsm *FSM) AddEvent(event string, from, to *State,
 	if ok {
 		for elem := etList.Front(); elem != nil; elem = elem.Next() {
 			et = elem.Value.(*Event)
-			dup := et.duplicate(event, from.state, to.state)
+			dup := et.duplicate(event, from.State, to.State)
 			switch dup {
 			case dupEventFromTo:
 				// same event, same from, same to

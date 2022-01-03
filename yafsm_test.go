@@ -2,6 +2,7 @@ package yafsm
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 	"sync"
 	"testing"
@@ -376,9 +377,8 @@ func emitPrio(t *testing.T, fsm *FSM) error {
 		err := fsm.EmitEvent(ET_RECVSYNACK)
 		if err == nil {
 			t.Error("illegal emit")
-		} else {
-			t.Logf("wrong emit: %v", err)
 		}
+		t.Logf("wrong emit: %v", err)
 		t.Log(fsm.State())
 	}()
 
@@ -399,6 +399,130 @@ func hangingthere(et *Event) {
 	time.Sleep(time.Second)
 }
 
+func emitAsync(t *testing.T, fsm *FSM) error {
+	err := error(nil)
+	ets := fsm.GetEvents(ET_SENDSYN)
+	if ets == nil || len(ets) != 1 {
+		err = errors.New("events don't match")
+		return err
+	}
+	ets[0].AddHandler(hangingthere)
+
+	err = fsm.EmitEvent(ET_SENDSYN)
+	if err != nil {
+		return err
+	}
+
+	t.Log(fsm.State())
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		errCh := fsm.EmitEventAsync(ET_RECVSYNACK)
+		err := <-errCh
+		if err == nil {
+			t.Error("illegal emit")
+		}
+		t.Logf("wrong emit: %v", err)
+		t.Log(fsm.State())
+	}()
+
+	go func() {
+		defer wg.Done()
+		errCh := fsm.EmitPrioEventAsync(2, ET_CLOSE)
+		err := <-errCh
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		t.Log(fsm.State())
+	}()
+	wg.Wait()
+	return nil
+}
+
+func emitAbsentEvent(t *testing.T, fsm *FSM) error {
+	err := error(nil)
+	closed := fsm.GetState(CLOSED)
+	if closed == nil {
+		err = errors.New("absent stae")
+		return err
+	}
+	synsent := fsm.GetState(SYN_SENT)
+	if synsent == nil {
+		err = errors.New("absent stae")
+		return err
+	}
+
+	deleted := fsm.DelEvent(ET_SENDSYN, closed, synsent)
+	if !deleted {
+		err = errors.New("absent event")
+		return err
+	}
+
+	errCh := fsm.EmitEventAsync(ET_SENDSYN)
+	err = <-errCh
+	if err == nil {
+		err = errors.New("illegal emit")
+		return err
+	}
+	t.Logf("wrong emit: %v", err)
+	t.Log(fsm.State())
+
+	_, err = fsm.AddEvent(ET_SENDSYN, closed, synsent)
+	return err
+}
+
+func emitWithStateHandlers(t *testing.T, fsm *FSM) error {
+	err := error(nil)
+	closed := fsm.GetState(CLOSED)
+	if closed == nil {
+		err = errors.New("absent state")
+		return err
+	}
+	closed.AddLeft(left)
+
+	synsent := fsm.GetState(SYN_SENT)
+	if synsent == nil {
+		err = errors.New("absent state")
+		return err
+	}
+	synsent.AddEnter(enter)
+	err = fsm.EmitEvent(ET_SENDSYN)
+	if err != nil {
+		t.Error(err)
+		return err
+	}
+	return nil
+}
+
+func enter(st *State) {
+	fmt.Printf("enter: %s\n", st.State)
+}
+
+func left(st *State) {
+	fmt.Printf("left: %s\n", st.State)
+}
+
+func emitAbsentState(t *testing.T, fsm *FSM) error {
+	err := error(nil)
+	deleted := fsm.DelState(SYN_SENT)
+	if !deleted {
+		err = errors.New("absent stae")
+		return err
+	}
+	t.Log(fsm.State())
+
+	err = fsm.EmitEvent(ET_SENDSYN)
+	if err == nil {
+		err = errors.New("illegal emit")
+		return err
+	}
+	t.Log(fsm.State())
+	return nil
+}
+
 func TestFSM(t *testing.T) {
 	fsm, err := initFSM()
 	if err != nil {
@@ -416,6 +540,26 @@ func TestFSM(t *testing.T) {
 		return
 	}
 	err = emitPrio(t, fsm)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = emitAsync(t, fsm)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = emitWithStateHandlers(t, fsm)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = emitAbsentEvent(t, fsm)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = emitAbsentState(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
