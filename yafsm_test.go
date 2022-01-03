@@ -371,6 +371,7 @@ func emitPrio(t *testing.T, fsm *FSM) error {
 
 	go func() {
 		defer wg.Done()
+		time.Sleep(time.Second)
 		err := fsm.EmitEvent(ET_RECVSYNACK)
 		if err == nil {
 			t.Error("illegal emit")
@@ -382,6 +383,7 @@ func emitPrio(t *testing.T, fsm *FSM) error {
 
 	go func() {
 		defer wg.Done()
+		time.Sleep(time.Second)
 		err = fsm.EmitPrioEvent(2, ET_CLOSE)
 		if err != nil {
 			t.Error(err)
@@ -394,7 +396,7 @@ func emitPrio(t *testing.T, fsm *FSM) error {
 }
 
 func hangingthere(et *Event) {
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 }
 
 func emitAsync(t *testing.T, fsm *FSM) error {
@@ -415,6 +417,7 @@ func emitAsync(t *testing.T, fsm *FSM) error {
 
 	go func() {
 		defer wg.Done()
+		time.Sleep(time.Second)
 		errCh := fsm.EmitEventAsync(ET_RECVSYNACK)
 		err := <-errCh
 		if err == nil {
@@ -426,6 +429,7 @@ func emitAsync(t *testing.T, fsm *FSM) error {
 
 	go func() {
 		defer wg.Done()
+		time.Sleep(time.Second)
 		errCh := fsm.EmitPrioEventAsync(2, ET_CLOSE)
 		err := <-errCh
 		if err != nil {
@@ -520,49 +524,78 @@ func emitAbsentState(t *testing.T, fsm *FSM) error {
 }
 
 func TestFSM(t *testing.T) {
+	t.Log("================")
 	fsm, err := initFSM()
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	t.Log("================")
 	err = emitNormal(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 	t.Log("================")
+	fsm, err = initFSM()
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	err = emitAbnormal(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 	t.Log("================")
+	fsm, err = initFSM()
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	err = emitPrio(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 	t.Log("================")
+	fsm, err = initFSM()
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	err = emitAsync(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	fsm.SetState(CLOSED)
 	t.Log("================")
+	fsm, err = initFSM()
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	err = emitWithStateHandlers(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 	t.Log("================")
+	fsm, err = initFSM()
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	err = emitAbsentEvent(t, fsm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 	t.Log("================")
+	fsm, err = initFSM()
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	err = emitAbsentState(t, fsm)
 	if err != nil {
 		t.Error(err)
