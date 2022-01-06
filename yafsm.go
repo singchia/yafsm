@@ -162,6 +162,18 @@ func (fsm *FSM) State() string {
 	return fsm.state
 }
 
+func (fsm *FSM) InStates(states ...string) bool {
+	fsm.mutex.RLock()
+	defer fsm.mutex.RUnlock()
+
+	for _, state := range states {
+		if state == fsm.state {
+			return true
+		}
+	}
+	return false
+}
+
 func (fsm *FSM) AddState(state string) *State {
 	fsm.mutex.Lock()
 	defer fsm.mutex.Unlock()
