@@ -369,10 +369,9 @@ type eventchan struct {
 
 func (fsm *FSM) EmitEvent(event string) error {
 	fsm.mutex.RLock()
-	defer fsm.mutex.RUnlock()
-
 	ch := make(chan error, 1)
 	_, ok := fsm.events[event]
+	fsm.mutex.RUnlock()
 	if !ok {
 		return ErrEventNotExist
 	}
@@ -392,10 +391,9 @@ func (fsm *FSM) EmitEvent(event string) error {
 
 func (fsm *FSM) EmitEventAsync(event string) <-chan error {
 	fsm.mutex.RLock()
-	defer fsm.mutex.RUnlock()
-
 	ch := make(chan error, 1)
 	_, ok := fsm.events[event]
+	fsm.mutex.RUnlock()
 	if !ok {
 		ch <- ErrEventNotExist
 		return ch
@@ -416,10 +414,9 @@ func (fsm *FSM) EmitEventAsync(event string) <-chan error {
 
 func (fsm *FSM) EmitPrioEvent(prio int, event string) error {
 	fsm.mutex.RLock()
-	defer fsm.mutex.RUnlock()
-
 	ch := make(chan error, 1)
 	_, ok := fsm.events[event]
+	fsm.mutex.RUnlock()
 	if !ok {
 		return ErrEventNotExist
 	}
@@ -439,10 +436,9 @@ func (fsm *FSM) EmitPrioEvent(prio int, event string) error {
 
 func (fsm *FSM) EmitPrioEventAsync(prio int, event string) <-chan error {
 	fsm.mutex.RLock()
-	defer fsm.mutex.RUnlock()
-
 	ch := make(chan error, 1)
 	_, ok := fsm.events[event]
+	fsm.mutex.RUnlock()
 	if !ok {
 		ch <- ErrEventNotExist
 		return ch
