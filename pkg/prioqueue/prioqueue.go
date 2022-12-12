@@ -34,6 +34,7 @@ type PrioQueue struct {
 	elems  int32
 	length int
 	ch     chan struct{}
+	ok     bool
 }
 
 // default queue priority 1, the higher the value, the higher the priority.
@@ -43,6 +44,7 @@ func NewPrioQueue(opts ...OptionPrioQueue) (*PrioQueue, error) {
 		length: 1024,
 		elems:  0,
 		ch:     make(chan struct{}, 1024),
+		ok:     true,
 	}
 	queue := &prioQueue{
 		prio: 1,
@@ -125,14 +127,18 @@ func (pq *PrioQueue) PrioPush(prio int, data interface{}) error {
 }
 
 func (pq *PrioQueue) Push(data interface{}) error {
+	pq.mutex.RLock()
+	if !pq.ok {
+		pq.mutex.RUnlock()
+		return errors.New("queue closed")
+	}
 	select {
 	case pq.ch <- struct{}{}:
 	default:
+		pq.mutex.RUnlock()
 		return errors.New("queue full")
 	}
-
 	queue := (*prioQueue)(nil)
-	pq.mutex.RLock()
 	for elem := pq.queues.Front(); elem != nil; elem = elem.Next() {
 		value, _ := elem.Value.(*prioQueue)
 		if value.prio == 1 {
@@ -205,4 +211,5 @@ func (pq *PrioQueue) Close() {
 	defer pq.mutex.Unlock()
 
 	close(pq.ch)
+	pq.ok = false
 }
