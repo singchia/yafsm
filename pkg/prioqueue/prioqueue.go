@@ -175,7 +175,10 @@ func (pq *PrioQueue) Pop() interface{} {
 }
 
 func (pq *PrioQueue) PopSync() interface{} {
-	<-pq.ch
+	_, ok := <-pq.ch
+	if !ok {
+		return nil
+	}
 	for {
 		queue := (*prioQueue)(nil)
 		pq.mutex.RLock()
@@ -195,4 +198,11 @@ func (pq *PrioQueue) PopSync() interface{} {
 		pq.mutex.RUnlock()
 	}
 	return nil
+}
+
+func (pq *PrioQueue) Close() {
+	pq.mutex.Lock()
+	defer pq.mutex.Unlock()
+
+	close(pq.ch)
 }

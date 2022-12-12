@@ -91,6 +91,17 @@ func (fsm *FSM) Init(state string) *State {
 
 func (fsm *FSM) Close() {
 	fsm.cancel()
+	fsm.cancel = nil
+
+	fsm.mutex.Lock()
+	defer fsm.mutex.Unlock()
+	for k, _ := range fsm.states {
+		delete(fsm.states, k)
+	}
+	for k, _ := range fsm.events {
+		delete(fsm.events, k)
+	}
+	fsm.pq.Close()
 }
 
 func (fsm *FSM) emit(ctx context.Context) {
