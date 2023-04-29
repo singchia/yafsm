@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/singchia/yafsm"
 )
 
 /*
@@ -86,8 +88,8 @@ const (
 	ET_TIMEWAITOUT = "timewaitout" // TIME_WAIT -> CLOSED
 )
 
-func initFSM() (*FSM, error) {
-	fsm := NewFSM()
+func initFSM() (*yafsm.FSM, error) {
+	fsm := yafsm.NewFSM()
 	// states
 	closed := fsm.Init(CLOSED)
 	synsent := fsm.AddState(SYN_SENT)
@@ -156,7 +158,7 @@ func initFSM() (*FSM, error) {
 	return fsm, nil
 }
 
-func emitNormal(t *testing.T, fsm *FSM) error {
+func emitNormal(t *testing.T, fsm *yafsm.FSM) error {
 	// active close 1
 	// CLOSED -> SYN_SENT -> ESTAB -> FIN_WAIT1 -> FIN_WAIT2 -> TIME_WAIT -> CLOSED
 	t.Log(fsm.State())
@@ -271,7 +273,7 @@ func emitNormal(t *testing.T, fsm *FSM) error {
 	return nil
 }
 
-func emitAbnormal(t *testing.T, fsm *FSM) error {
+func emitAbnormal(t *testing.T, fsm *yafsm.FSM) error {
 	// active close 1
 	// CLOSED -> SYN_SENT -> ESTAB -> FIN_WAIT1 -> FIN_WAIT2 -> TIME_WAIT -> CLOSED
 	t.Log(fsm.State())
@@ -353,7 +355,7 @@ func emitAbnormal(t *testing.T, fsm *FSM) error {
 	return nil
 }
 
-func emitPrio(t *testing.T, fsm *FSM) error {
+func emitPrio(t *testing.T, fsm *yafsm.FSM) error {
 	err := error(nil)
 	ets := fsm.GetEvents(ET_SENDSYN)
 	if ets == nil || len(ets) != 1 {
@@ -395,11 +397,11 @@ func emitPrio(t *testing.T, fsm *FSM) error {
 	return nil
 }
 
-func hangingthere(et *Event) {
+func hangingthere(et *yafsm.Event) {
 	time.Sleep(2 * time.Second)
 }
 
-func emitAsync(t *testing.T, fsm *FSM) error {
+func emitAsync(t *testing.T, fsm *yafsm.FSM) error {
 	t.Log(fsm.State())
 	err := error(nil)
 	ets := fsm.GetEvents(ET_SENDSYN)
@@ -442,7 +444,7 @@ func emitAsync(t *testing.T, fsm *FSM) error {
 	return nil
 }
 
-func emitAbsentEvent(t *testing.T, fsm *FSM) error {
+func emitAbsentEvent(t *testing.T, fsm *yafsm.FSM) error {
 	err := error(nil)
 	closed := fsm.GetState(CLOSED)
 	if closed == nil {
@@ -474,7 +476,7 @@ func emitAbsentEvent(t *testing.T, fsm *FSM) error {
 	return err
 }
 
-func emitWithStateHandlers(t *testing.T, fsm *FSM) error {
+func emitWithStateHandlers(t *testing.T, fsm *yafsm.FSM) error {
 	err := error(nil)
 	closed := fsm.GetState(CLOSED)
 	if closed == nil {
@@ -497,15 +499,15 @@ func emitWithStateHandlers(t *testing.T, fsm *FSM) error {
 	return nil
 }
 
-func enter(st *State) {
+func enter(st *yafsm.State) {
 	fmt.Printf("enter: %s\n", st.State)
 }
 
-func left(st *State) {
+func left(st *yafsm.State) {
 	fmt.Printf("left: %s\n", st.State)
 }
 
-func emitAbsentState(t *testing.T, fsm *FSM) error {
+func emitAbsentState(t *testing.T, fsm *yafsm.FSM) error {
 	err := error(nil)
 	deleted := fsm.DelState(SYN_SENT)
 	if !deleted {
