@@ -98,7 +98,11 @@ func (fsm *FSM) Close() {
 	for k, _ := range fsm.states {
 		delete(fsm.states, k)
 	}
-	for k, _ := range fsm.events {
+	for k, v := range fsm.events {
+		for elem := v.Front(); elem != nil; elem = elem.Next() {
+			event := elem.Value.(*Event)
+			event.handlers, event.From, event.To = nil, nil, nil
+		}
 		delete(fsm.events, k)
 	}
 	fsm.pq.Close()
@@ -108,10 +112,16 @@ func (fsm *FSM) emit(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			fsm.pq = nil
+			fsm.events = nil
+			fsm.states = nil
 			return
 
 		default:
 			data := fsm.pq.PopSync()
+			if data == nil {
+				continue
+			}
 			switch ec := data.(type) {
 			case *eventchan:
 				et := (*Event)(nil)

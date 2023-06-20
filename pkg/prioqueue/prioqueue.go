@@ -72,6 +72,11 @@ func (pq *PrioQueue) Available() int {
 }
 
 func (pq *PrioQueue) PrioPush(prio int, data interface{}) error {
+	pq.mutex.RLock()
+	if !pq.ok {
+		pq.mutex.RUnlock()
+		return errors.New("queue closed")
+	}
 	select {
 	case pq.ch <- struct{}{}:
 	default:
@@ -79,7 +84,6 @@ func (pq *PrioQueue) PrioPush(prio int, data interface{}) error {
 	}
 
 	queue := (*prioQueue)(nil)
-	pq.mutex.RLock()
 	for elem := pq.queues.Front(); elem != nil; elem = elem.Next() {
 		value, _ := elem.Value.(*prioQueue)
 		if value.prio == prio {
@@ -203,7 +207,6 @@ func (pq *PrioQueue) PopSync() interface{} {
 		}
 		pq.mutex.RUnlock()
 	}
-	return nil
 }
 
 func (pq *PrioQueue) Close() {
