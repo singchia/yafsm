@@ -90,11 +90,9 @@ func (fsm *FSM) Init(state string) *State {
 }
 
 func (fsm *FSM) Close() {
-	fsm.cancel()
-	fsm.cancel = nil
-
 	fsm.mutex.Lock()
 	defer fsm.mutex.Unlock()
+
 	for k, _ := range fsm.states {
 		delete(fsm.states, k)
 	}
@@ -106,15 +104,13 @@ func (fsm *FSM) Close() {
 		delete(fsm.events, k)
 	}
 	fsm.pq.Close()
+	fsm.cancel()
 }
 
 func (fsm *FSM) emit(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			fsm.pq = nil
-			fsm.events = nil
-			fsm.states = nil
 			return
 
 		default:
