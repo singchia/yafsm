@@ -209,6 +209,7 @@ func (pq *PrioQueue) PopSync() interface{} {
 	}
 }
 
+// user should release the reference to pq after Close
 func (pq *PrioQueue) Close() {
 	pq.mutex.Lock()
 	defer pq.mutex.Unlock()

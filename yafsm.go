@@ -62,16 +62,26 @@ func (et *Event) AddHandler(handler EventHandler) {
 	et.handlers = append(et.handlers, handler)
 }
 
+type FSMOption func(*FSM)
+
+func WithAsync() FSMOption {
+	return func(fsm *FSM) {
+		fsm.async = true
+	}
+}
+
 type FSM struct {
 	state  string
 	states map[string]*State
 	events map[string]*list.List
+
+	async  bool
 	mutex  sync.RWMutex
 	pq     *prioqueue.PrioQueue
 	cancel context.CancelFunc
 }
 
-func NewFSM() *FSM {
+func NewFSM(opts ...FSMOption) *FSM {
 	pq, _ := prioqueue.NewPrioQueue()
 	ctx, cancel := context.WithCancel(context.Background())
 	fsm := &FSM{
@@ -80,7 +90,12 @@ func NewFSM() *FSM {
 		states: make(map[string]*State),
 		events: make(map[string]*list.List),
 	}
-	go fsm.emit(ctx)
+	for _, opt := range opts {
+		opt(fsm)
+	}
+	if fsm.async {
+		go fsm.emit(ctx)
+	}
 	return fsm
 }
 
@@ -90,11 +105,9 @@ func (fsm *FSM) Init(state string) *State {
 }
 
 func (fsm *FSM) Close() {
-	fsm.cancel()
-	fsm.cancel = nil
-
 	fsm.mutex.Lock()
 	defer fsm.mutex.Unlock()
+
 	for k, _ := range fsm.states {
 		delete(fsm.states, k)
 	}
@@ -106,63 +119,66 @@ func (fsm *FSM) Close() {
 		delete(fsm.events, k)
 	}
 	fsm.pq.Close()
+	fsm.cancel()
 }
 
 func (fsm *FSM) emit(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			fsm.pq = nil
-			fsm.events = nil
-			fsm.states = nil
 			return
-
 		default:
-			data := fsm.pq.PopSync()
-			if data == nil {
-				continue
-			}
-			switch ec := data.(type) {
-			case *eventchan:
-				et := (*Event)(nil)
+			fsm.emitOne()
+		}
+	}
+}
 
-				fsm.mutex.RLock()
-				etList, ok := fsm.events[ec.event]
-				if !ok {
-					ec.ch <- ErrEventNotExist
-					close(ec.ch)
-					fsm.mutex.RUnlock()
-					continue
-				}
-				for elem := etList.Front(); elem != nil; elem = elem.Next() {
-					tmp := elem.Value.(*Event)
-					if tmp.From.State == fsm.state {
-						et = tmp
-					}
-				}
-				fsm.mutex.RUnlock()
+func (fsm *FSM) emitOne() {
+	data := fsm.pq.PopSync()
+	if data == nil {
+		return
+	}
+	switch ec := data.(type) {
+	case *eventchan:
+		et := (*Event)(nil)
 
-				if et == nil {
-					ec.ch <- ErrIllegalStateForEvent
-					close(ec.ch)
-					continue
-				}
-				for _, left := range et.From.lefts {
-					left(et.From)
-				}
-				for _, handler := range et.handlers {
-					handler(et)
-				}
-				for _, enter := range et.To.enters {
-					enter(et.To)
-				}
-				fsm.mutex.Lock()
-				fsm.state = et.To.State
-				fsm.mutex.Unlock()
-				ec.ch <- nil
-				close(ec.ch)
+		fsm.mutex.RLock()
+		etList, ok := fsm.events[ec.event]
+		if !ok {
+			ec.ch <- ErrEventNotExist
+			close(ec.ch)
+			fsm.mutex.RUnlock()
+			return
+		}
+		fsm.mutex.RUnlock()
+
+		fsm.mutex.Lock()
+		for elem := etList.Front(); elem != nil; elem = elem.Next() {
+			tmp := elem.Value.(*Event)
+			if tmp.From.State == fsm.state {
+				et = tmp
 			}
 		}
+		if et == nil {
+			ec.ch <- ErrIllegalStateForEvent
+			close(ec.ch)
+			fsm.mutex.Unlock()
+			return
+		}
+		fsm.state = et.To.State
+		fsm.mutex.Unlock()
+
+		for _, left := range et.From.lefts {
+			left(et.From)
+		}
+		for _, handler := range et.handlers {
+			handler(et)
+		}
+		for _, enter := range et.To.enters {
+			enter(et.To)
+		}
+		ec.ch <- nil
+		close(ec.ch)
 	}
 }
 
@@ -390,10 +406,12 @@ func (fsm *FSM) EmitEvent(event string) error {
 		event: event,
 		ch:    ch,
 	}
-
 	err := fsm.pq.Push(eventchan)
 	if err != nil {
 		return err
+	}
+	if !fsm.async {
+		fsm.emitOne()
 	}
 	err = <-ch
 	return err
@@ -419,6 +437,9 @@ func (fsm *FSM) EmitEventAsync(event string) <-chan error {
 		ch <- err
 		return ch
 	}
+	if !fsm.async {
+		fsm.emitOne()
+	}
 	return ch
 }
 
@@ -439,6 +460,9 @@ func (fsm *FSM) EmitPrioEvent(prio int, event string) error {
 	err := fsm.pq.PrioPush(prio, eventchan)
 	if err != nil {
 		return err
+	}
+	if !fsm.async {
+		fsm.emitOne()
 	}
 	err = <-ch
 	return err
@@ -463,6 +487,9 @@ func (fsm *FSM) EmitPrioEventAsync(prio int, event string) <-chan error {
 	if err != nil {
 		ch <- err
 		return ch
+	}
+	if !fsm.async {
+		fsm.emitOne()
 	}
 	return ch
 }
