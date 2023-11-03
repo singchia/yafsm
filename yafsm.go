@@ -70,15 +70,21 @@ func WithAsync() FSMOption {
 	}
 }
 
+func WithInSeq() FSMOption {
+	return func(fsm *FSM) {
+		fsm.inseq = true
+	}
+}
+
 type FSM struct {
 	state  string
 	states map[string]*State
 	events map[string]*list.List
 
-	async  bool
-	mutex  sync.RWMutex
-	pq     *prioqueue.PrioQueue
-	cancel context.CancelFunc
+	async, inseq bool
+	mutex        sync.RWMutex
+	pq           *prioqueue.PrioQueue
+	cancel       context.CancelFunc
 }
 
 func NewFSM(opts ...FSMOption) *FSM {
@@ -168,6 +174,49 @@ func (fsm *FSM) emitOne() {
 		fsm.state = et.To.State
 		fsm.mutex.Unlock()
 
+		for _, left := range et.From.lefts {
+			left(et.From)
+		}
+		for _, handler := range et.handlers {
+			handler(et)
+		}
+		for _, enter := range et.To.enters {
+			enter(et.To)
+		}
+		ec.ch <- nil
+		close(ec.ch)
+	}
+}
+
+func (fsm *FSM) emitOneInSeq() {
+	fsm.mutex.Lock()
+	defer fsm.mutex.Unlock()
+
+	data := fsm.pq.PopSync()
+	if data == nil {
+		return
+	}
+	switch ec := data.(type) {
+	case *eventchan:
+		et := (*Event)(nil)
+		etList, ok := fsm.events[ec.event]
+		if !ok {
+			ec.ch <- ErrEventNotExist
+			close(ec.ch)
+			return
+		}
+		for elem := etList.Front(); elem != nil; elem = elem.Next() {
+			tmp := elem.Value.(*Event)
+			if tmp.From.State == fsm.state {
+				et = tmp
+			}
+		}
+		if et == nil {
+			ec.ch <- ErrIllegalStateForEvent
+			close(ec.ch)
+			return
+		}
+		fsm.state = et.To.State
 		for _, left := range et.From.lefts {
 			left(et.From)
 		}
@@ -411,7 +460,11 @@ func (fsm *FSM) EmitEvent(event string) error {
 		return err
 	}
 	if !fsm.async {
-		fsm.emitOne()
+		if fsm.inseq {
+			fsm.emitOneInSeq()
+		} else {
+			fsm.emitOne()
+		}
 	}
 	err = <-ch
 	return err
@@ -438,7 +491,11 @@ func (fsm *FSM) EmitEventAsync(event string) <-chan error {
 		return ch
 	}
 	if !fsm.async {
-		fsm.emitOne()
+		if fsm.inseq {
+			fsm.emitOneInSeq()
+		} else {
+			fsm.emitOne()
+		}
 	}
 	return ch
 }
@@ -462,7 +519,11 @@ func (fsm *FSM) EmitPrioEvent(prio int, event string) error {
 		return err
 	}
 	if !fsm.async {
-		fsm.emitOne()
+		if fsm.inseq {
+			fsm.emitOneInSeq()
+		} else {
+			fsm.emitOne()
+		}
 	}
 	err = <-ch
 	return err
@@ -489,7 +550,11 @@ func (fsm *FSM) EmitPrioEventAsync(prio int, event string) <-chan error {
 		return ch
 	}
 	if !fsm.async {
-		fsm.emitOne()
+		if fsm.inseq {
+			fsm.emitOneInSeq()
+		} else {
+			fsm.emitOne()
+		}
 	}
 	return ch
 }
