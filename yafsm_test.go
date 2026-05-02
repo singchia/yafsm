@@ -1,768 +1,321 @@
 package yafsm
 
 import (
-	"container/list"
-	"context"
-	"reflect"
+	"errors"
 	"sync"
 	"testing"
-
-	"github.com/singchia/yafsm/pkg/prioqueue"
+	"time"
 )
 
+const (
+	stateA = "A"
+	stateB = "B"
+	stateC = "C"
+	evAB   = "a->b"
+	evBC   = "b->c"
+	evCA   = "c->a"
+)
+
+func newAB() *FSM {
+	fsm := NewFSM()
+	a := fsm.Init(stateA)
+	b := fsm.AddState(stateB)
+	fsm.AddEvent(evAB, a, b)
+	return fsm
+}
+
 func TestNewState(t *testing.T) {
-	type args struct {
-		state string
-	}
-	tests := []struct {
-		name string
-		args args
-		want *State
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := NewState(tt.args.state); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewState() = %v, want %v", got, tt.want)
-			}
-		})
+	st := NewState(stateA)
+	if st.State != stateA {
+		t.Fatalf("got %q want %q", st.State, stateA)
 	}
 }
 
-func TestState_AddEnter(t *testing.T) {
-	type fields struct {
-		State  string
-		enters []StateHandler
-		lefts  []StateHandler
+func TestStateHandlers(t *testing.T) {
+	fsm := NewFSM()
+	a := fsm.Init(stateA)
+	b := fsm.AddState(stateB)
+	if _, err := fsm.AddEvent(evAB, a, b); err != nil {
+		t.Fatal(err)
 	}
-	type args struct {
-		handler StateHandler
+
+	var entered, left string
+	a.AddLeft(func(st *State) { left = st.State })
+	b.AddEnter(func(st *State) { entered = st.State })
+
+	if err := fsm.EmitEvent(evAB); err != nil {
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			st := &State{
-				State:  tt.fields.State,
-				enters: tt.fields.enters,
-				lefts:  tt.fields.lefts,
-			}
-			st.AddEnter(tt.args.handler)
-		})
+	if left != stateA || entered != stateB {
+		t.Fatalf("hooks not fired: left=%q entered=%q", left, entered)
 	}
 }
 
-func TestState_AddLeft(t *testing.T) {
-	type fields struct {
-		State  string
-		enters []StateHandler
-		lefts  []StateHandler
+func TestEventHandler(t *testing.T) {
+	fsm := newAB()
+	ets := fsm.GetEvents(evAB)
+	if len(ets) != 1 {
+		t.Fatalf("want 1 event, got %d", len(ets))
 	}
-	type args struct {
-		handler StateHandler
+	called := false
+	ets[0].AddHandler(func(*Event) { called = true })
+
+	if err := fsm.EmitEvent(evAB); err != nil {
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			st := &State{
-				State:  tt.fields.State,
-				enters: tt.fields.enters,
-				lefts:  tt.fields.lefts,
-			}
-			st.AddLeft(tt.args.handler)
-		})
+	if !called {
+		t.Fatal("event handler not invoked")
 	}
 }
 
-func TestEvent_AddHandler(t *testing.T) {
-	type fields struct {
-		Event    string
-		From     *State
-		To       *State
-		handlers []EventHandler
-		ch       chan error
+func TestInitAndState(t *testing.T) {
+	fsm := newAB()
+	if got := fsm.State(); got != stateA {
+		t.Fatalf("State() = %q, want %q", got, stateA)
 	}
-	type args struct {
-		handler EventHandler
+	if !fsm.InStates(stateA, stateB) {
+		t.Fatal("InStates: expected match on A")
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			et := &Event{
-				Event:    tt.fields.Event,
-				From:     tt.fields.From,
-				To:       tt.fields.To,
-				handlers: tt.fields.handlers,
-				ch:       tt.fields.ch,
-			}
-			et.AddHandler(tt.args.handler)
-		})
+	if fsm.InStates(stateC) {
+		t.Fatal("InStates: unexpected match on C")
 	}
 }
 
-func TestNewFSM(t *testing.T) {
-	tests := []struct {
-		name string
-		want *FSM
-	}{
-		// TODO: Add test cases.
+func TestSetState(t *testing.T) {
+	fsm := newAB()
+	if !fsm.SetState(stateB) {
+		t.Fatal("SetState(B) should succeed")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := NewFSM(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewFSM() = %v, want %v", got, tt.want)
-			}
-		})
+	if fsm.State() != stateB {
+		t.Fatalf("expected B, got %q", fsm.State())
+	}
+	if fsm.SetState("nonexistent") {
+		t.Fatal("SetState on unknown state should fail")
 	}
 }
 
-func TestFSM_Init(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestAddGetDelState(t *testing.T) {
+	fsm := newAB()
+	if got := fsm.GetState(stateA); got == nil || got.State != stateA {
+		t.Fatalf("GetState(A): %v", got)
 	}
-	type args struct {
-		state string
+	if got := fsm.GetState("missing"); got != nil {
+		t.Fatalf("GetState(missing) should be nil, got %v", got)
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   *State
-	}{
-		// TODO: Add test cases.
+	if !fsm.DelState(stateB) {
+		t.Fatal("DelState(B) should succeed")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.Init(tt.args.state); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FSM.Init() = %v, want %v", got, tt.want)
-			}
-		})
+	if fsm.DelState(stateB) {
+		t.Fatal("second DelState(B) should fail")
+	}
+	// associated event must have been removed
+	if got := fsm.GetEvents(evAB); got != nil {
+		t.Fatalf("expected events for A->B to be gone, got %v", got)
 	}
 }
 
-func TestFSM_Close(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestDelStateRemovesAllAssociatedEvents(t *testing.T) {
+	// regression: DelState used to skip subsequent matches due to
+	// iterator invalidation after list.Remove.
+	fsm := NewFSM()
+	a := fsm.Init(stateA)
+	b := fsm.AddState(stateB)
+	c := fsm.AddState(stateC)
+	if _, err := fsm.AddEvent(evAB, a, b); err != nil {
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name   string
-		fields fields
-	}{
-		// TODO: Add test cases.
+	if _, err := fsm.AddEvent(evCA, c, a); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			fsm.Close()
-		})
+	// share a single event name with two transitions both touching A
+	shared := "shared"
+	if _, err := fsm.AddEvent(shared, b, c); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestFSM_SetState(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+	if _, err := fsm.AddEvent(shared, c, b); err != nil {
+		t.Fatal(err)
 	}
-	type args struct {
-		state string
+	if !fsm.DelState(stateA) {
+		t.Fatal("DelState(A) should succeed")
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   bool
-	}{
-		// TODO: Add test cases.
+	if got := fsm.GetEvents(evAB); got != nil {
+		t.Fatalf("evAB should be cleaned: %v", got)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.SetState(tt.args.state); got != tt.want {
-				t.Errorf("FSM.SetState() = %v, want %v", got, tt.want)
-			}
-		})
+	if got := fsm.GetEvents(evCA); got != nil {
+		t.Fatalf("evCA should be cleaned: %v", got)
+	}
+	// shared transitions don't touch A, must remain
+	if got := fsm.GetEvents(shared); len(got) != 2 {
+		t.Fatalf("shared events should remain (2), got %d", len(got))
 	}
 }
 
-func TestFSM_State(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		want   string
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.State(); got != tt.want {
-				t.Errorf("FSM.State() = %v, want %v", got, tt.want)
-			}
-		})
+func TestAddEventDuplicate(t *testing.T) {
+	fsm := newAB()
+	a := fsm.GetState(stateA)
+	b := fsm.GetState(stateB)
+	if _, err := fsm.AddEvent(evAB, a, b); !errors.Is(err, ErrEventDuplicated) {
+		t.Fatalf("want ErrEventDuplicated, got %v", err)
 	}
 }
 
-func TestFSM_InStates(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
-	}
-	type args struct {
-		states []string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.InStates(tt.args.states...); got != tt.want {
-				t.Errorf("FSM.InStates() = %v, want %v", got, tt.want)
-			}
-		})
+func TestAddEventIllegalSameFromDifferentTo(t *testing.T) {
+	fsm := newAB()
+	a := fsm.GetState(stateA)
+	c := fsm.AddState(stateC)
+	if _, err := fsm.AddEvent(evAB, a, c); !errors.Is(err, ErrEventIllegal) {
+		t.Fatalf("want ErrEventIllegal, got %v", err)
 	}
 }
 
-func TestFSM_AddState(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
-	}
-	type args struct {
-		state string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   *State
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.AddState(tt.args.state); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FSM.AddState() = %v, want %v", got, tt.want)
-			}
-		})
+func TestAddEventStateNotExist(t *testing.T) {
+	fsm := NewFSM()
+	a := fsm.Init(stateA)
+	missing := &State{State: "ghost"}
+	if _, err := fsm.AddEvent(evAB, a, missing); !errors.Is(err, ErrStateNotExist) {
+		t.Fatalf("want ErrStateNotExist, got %v", err)
 	}
 }
 
-func TestFSM_GetState(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestEmitEventErrors(t *testing.T) {
+	fsm := newAB()
+	if err := fsm.EmitEvent("missing"); !errors.Is(err, ErrEventNotExist) {
+		t.Fatalf("want ErrEventNotExist, got %v", err)
 	}
-	type args struct {
-		state string
+	// fsm starts in A; evBC needs B
+	b := fsm.AddState(stateB)
+	c := fsm.AddState(stateC)
+	if _, err := fsm.AddEvent(evBC, b, c); err != nil {
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   *State
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.GetState(tt.args.state); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FSM.GetState() = %v, want %v", got, tt.want)
-			}
-		})
+	if err := fsm.EmitEvent(evBC); !errors.Is(err, ErrIllegalStateForEvent) {
+		t.Fatalf("want ErrIllegalStateForEvent, got %v", err)
 	}
 }
 
-func TestFSM_DelState(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestEmitEventAsync(t *testing.T) {
+	fsm := newAB()
+	ch := fsm.EmitEventAsync(evAB)
+	if err := <-ch; err != nil {
+		t.Fatal(err)
 	}
-	type args struct {
-		state string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.DelState(tt.args.state); got != tt.want {
-				t.Errorf("FSM.DelState() = %v, want %v", got, tt.want)
-			}
-		})
+	if fsm.State() != stateB {
+		t.Fatalf("expected B, got %q", fsm.State())
 	}
 }
 
-func TestFSM_AddEvent(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
-	}
-	type args struct {
-		event    string
-		from     *State
-		to       *State
-		handlers []EventHandler
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		want    *Event
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			got, err := fsm.AddEvent(tt.args.event, tt.args.from, tt.args.to, tt.args.handlers...)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("FSM.AddEvent() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FSM.AddEvent() = %v, want %v", got, tt.want)
-			}
-		})
+func TestEmitEventAsyncEventNotExist(t *testing.T) {
+	fsm := newAB()
+	if err := <-fsm.EmitEventAsync("missing"); !errors.Is(err, ErrEventNotExist) {
+		t.Fatalf("want ErrEventNotExist, got %v", err)
 	}
 }
 
-func TestFSM_GetEvents(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestDelEvents(t *testing.T) {
+	fsm := newAB()
+	if !fsm.DelEvents(evAB) {
+		t.Fatal("DelEvents should succeed")
 	}
-	type args struct {
-		event string
+	if fsm.DelEvents(evAB) {
+		t.Fatal("second DelEvents should fail")
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   []*Event
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.GetEvents(tt.args.event); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FSM.GetEvents() = %v, want %v", got, tt.want)
-			}
-		})
+	if err := fsm.EmitEvent(evAB); !errors.Is(err, ErrEventNotExist) {
+		t.Fatalf("want ErrEventNotExist, got %v", err)
 	}
 }
 
-func TestFSM_GetEvent(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestDelEvent(t *testing.T) {
+	fsm := newAB()
+	a := fsm.GetState(stateA)
+	b := fsm.GetState(stateB)
+	if !fsm.DelEvent(evAB, a, b) {
+		t.Fatal("DelEvent should succeed")
 	}
-	type args struct {
-		event string
-		from  *State
-		to    *State
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   *Event
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.GetEvent(tt.args.event, tt.args.from, tt.args.to); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FSM.GetEvent() = %v, want %v", got, tt.want)
-			}
-		})
+	if fsm.DelEvent(evAB, a, b) {
+		t.Fatal("second DelEvent should fail")
 	}
 }
 
-func TestFSM_DelEvents(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestGetEvent(t *testing.T) {
+	fsm := newAB()
+	a := fsm.GetState(stateA)
+	b := fsm.GetState(stateB)
+	if got := fsm.GetEvent(evAB, a, b); got == nil {
+		t.Fatal("GetEvent should find event")
 	}
-	type args struct {
-		event string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.DelEvents(tt.args.event); got != tt.want {
-				t.Errorf("FSM.DelEvents() = %v, want %v", got, tt.want)
-			}
-		})
+	if got := fsm.GetEvent("missing", a, b); got != nil {
+		t.Fatal("GetEvent for unknown event should be nil")
 	}
 }
 
-func TestFSM_DelEvent(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestEmitPrioEvent(t *testing.T) {
+	fsm := newAB()
+	if err := fsm.EmitPrioEvent(2, evAB); err != nil {
+		t.Fatal(err)
 	}
-	type args struct {
-		event string
-		from  *State
-		to    *State
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.DelEvent(tt.args.event, tt.args.from, tt.args.to); got != tt.want {
-				t.Errorf("FSM.DelEvent() = %v, want %v", got, tt.want)
-			}
-		})
+	if fsm.State() != stateB {
+		t.Fatalf("expected B, got %q", fsm.State())
 	}
 }
 
-func TestFSM_EmitEvent(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestEmitPrioEventAsync(t *testing.T) {
+	fsm := newAB()
+	if err := <-fsm.EmitPrioEventAsync(5, evAB); err != nil {
+		t.Fatal(err)
 	}
-	type args struct {
-		event string
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if err := fsm.EmitEvent(tt.args.event); (err != nil) != tt.wantErr {
-				t.Errorf("FSM.EmitEvent() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	if fsm.State() != stateB {
+		t.Fatalf("expected B, got %q", fsm.State())
 	}
 }
 
-func TestFSM_EmitEventAsync(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestAsyncMode(t *testing.T) {
+	fsm := NewFSM(WithAsync())
+	defer fsm.Close()
+	a := fsm.Init(stateA)
+	b := fsm.AddState(stateB)
+	if _, err := fsm.AddEvent(evAB, a, b); err != nil {
+		t.Fatal(err)
 	}
-	type args struct {
-		event string
+	if err := fsm.EmitEvent(evAB); err != nil {
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   <-chan error
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.EmitEventAsync(tt.args.event); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FSM.EmitEventAsync() = %v, want %v", got, tt.want)
-			}
-		})
+	if fsm.State() != stateB {
+		t.Fatalf("expected B, got %q", fsm.State())
 	}
 }
 
-func TestFSM_EmitPrioEvent(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
+func TestInSeqModeConcurrentEmits(t *testing.T) {
+	fsm := NewFSM(WithInSeq())
+	a := fsm.Init(stateA)
+	b := fsm.AddState(stateB)
+	c := fsm.AddState(stateC)
+	if _, err := fsm.AddEvent(evAB, a, b); err != nil {
+		t.Fatal(err)
 	}
-	type args struct {
-		prio  int
-		event string
+	if _, err := fsm.AddEvent(evBC, b, c); err != nil {
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	if _, err := fsm.AddEvent(evCA, c, a); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if err := fsm.EmitPrioEvent(tt.args.prio, tt.args.event); (err != nil) != tt.wantErr {
-				t.Errorf("FSM.EmitPrioEvent() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 30; i++ {
+		wg.Add(3)
+		go func() { defer wg.Done(); fsm.EmitEvent(evAB) }()
+		go func() { defer wg.Done(); fsm.EmitEvent(evBC) }()
+		go func() { defer wg.Done(); fsm.EmitEvent(evCA) }()
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("emit deadlock under InSeq mode")
 	}
 }
 
-func TestFSM_EmitPrioEventAsync(t *testing.T) {
-	type fields struct {
-		state  string
-		states map[string]*State
-		events map[string]*list.List
-		mutex  sync.RWMutex
-		pq     *prioqueue.PrioQueue
-		cancel context.CancelFunc
-	}
-	type args struct {
-		prio  int
-		event string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   <-chan error
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fsm := &FSM{
-				state:  tt.fields.state,
-				states: tt.fields.states,
-				events: tt.fields.events,
-				mutex:  tt.fields.mutex,
-				pq:     tt.fields.pq,
-				cancel: tt.fields.cancel,
-			}
-			if got := fsm.EmitPrioEventAsync(tt.args.prio, tt.args.event); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FSM.EmitPrioEventAsync() = %v, want %v", got, tt.want)
-			}
-		})
-	}
+func TestClose(t *testing.T) {
+	fsm := newAB()
+	fsm.Close()
 }

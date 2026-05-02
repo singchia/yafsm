@@ -41,7 +41,7 @@ func initFSM(fsm *yafsm.FSM) {
 	closesent := fsm.AddState(CLOSE_SENT)
 	closerecv := fsm.AddState(CLOSE_RECV)
 	closehalf := fsm.AddState(CLOSE_HALF)
-	closed := fsm.AddState(FINI)
+	closed := fsm.AddState(CLOSED)
 	fini := fsm.AddState(FINI)
 	fsm.SetState(INIT)
 
@@ -91,7 +91,7 @@ func main() {
 		fsms = append(fsms, fsm)
 		initFSM(fsm)
 		fsm.EmitEvent(ET_CONNRECV)
-		fsm.EmitEvent(CLOSE_SENT)
+		fsm.EmitEvent(ET_CLOSESENT)
 		fsm.EmitEvent(ET_ERROR)
 		fsm.EmitEvent(ET_FINI)
 		fsm.Close()
