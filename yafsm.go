@@ -114,7 +114,7 @@ func (fsm *FSM) Close() {
 	fsm.mutex.Lock()
 	defer fsm.mutex.Unlock()
 
-	for k, _ := range fsm.states {
+	for k := range fsm.states {
 		delete(fsm.states, k)
 	}
 	for k, v := range fsm.events {
@@ -293,12 +293,12 @@ func (fsm *FSM) DelState(state string) bool {
 	}
 	delete(fsm.states, state)
 
-	et := (*Event)(nil)
 	for event, etList := range fsm.events {
-		for elem := etList.Front(); elem != nil; elem = elem.Next() {
-			et = elem.Value.(*Event)
-			if et.From.State == state ||
-				et.To.State == state {
+		var next *list.Element
+		for elem := etList.Front(); elem != nil; elem = next {
+			next = elem.Next()
+			et := elem.Value.(*Event)
+			if et.From.State == state || et.To.State == state {
 				etList.Remove(elem)
 			}
 		}

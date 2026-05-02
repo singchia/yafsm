@@ -80,6 +80,7 @@ func (pq *PrioQueue) PrioPush(prio int, data interface{}) error {
 	select {
 	case pq.ch <- struct{}{}:
 	default:
+		pq.mutex.RUnlock()
 		return errors.New("queue full")
 	}
 
