@@ -1,7 +1,6 @@
 # yafsm
 
 [![Go](https://github.com/singchia/yafsm/actions/workflows/go.yml/badge.svg)](https://github.com/singchia/yafsm/actions/workflows/go.yml)
-[![Codecov](https://codecov.io/gh/singchia/yafsm/branch/main/graph/badge.svg?token=DG3F7VMMKF)](https://codecov.io/gh/singchia/yafsm)
 [![Go Reference](https://pkg.go.dev/badge/github.com/singchia/yafsm.svg)](https://pkg.go.dev/github.com/singchia/yafsm)
 [![Go Report Card](https://goreportcard.com/badge/github.com/singchia/yafsm)](https://goreportcard.com/report/github.com/singchia/yafsm)
 [![License](https://img.shields.io/github/license/singchia/yafsm)](LICENSE)
